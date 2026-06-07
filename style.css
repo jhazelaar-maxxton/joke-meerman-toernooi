@@ -1,0 +1,152 @@
+/* ================================================================
+   Joke Meerman Toernooi — SVOD'22 huisstijl
+   Wil je de kleuren aanpassen? Pas de variabelen hieronder aan.
+   ================================================================ */
+
+:root {
+  --primary:        #f5c400;   /* SVOD geel  */
+  --primary-dark:   #d4a900;
+  --accent:         #1e6fc5;   /* SVOD blauw */
+  --accent-dark:    #1558a0;
+  --navy:           #0a1628;   /* header achtergrond */
+  --navy-mid:       #0d1b35;   /* tab-balk achtergrond */
+  --heading:        #1e3a8a;   /* koppen in content */
+  --text:           #1e293b;   /* bodytekst */
+  --text-muted:     #94a3b8;   /* gedimde tekst */
+  --text-sub:       #64748b;   /* secundaire tekst */
+  --bg:             #f0f4f8;   /* pagina achtergrond */
+  --card:           #ffffff;   /* kaart achtergrond */
+  --sub-card:       #f8fafc;   /* inner sub-kaart */
+  --border:         #e2e8f0;   /* standaard rand */
+  --border-light:   #f1f5f9;   /* lichte tabelrand */
+  --win-color:      #2563eb;   /* winst blauw */
+  --loss-color:     #f87171;   /* verlies rood */
+}
+
+/* ── Basis ─────────────────────────────────────────────────────── */
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg); }
+
+/* ── Navigatietabs ──────────────────────────────────────────────── */
+.tab-active { border-bottom: 3px solid var(--primary); color: var(--primary); }
+
+/* ── Kaarten ────────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+
+/* ── Knoppen ────────────────────────────────────────────────────── */
+.btn-primary {
+  background: var(--primary);
+  color: var(--navy);
+  font-weight: 700;
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-primary:hover    { background: var(--primary-dark); }
+.btn-primary:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
+
+.btn-secondary {
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  padding: 0.5rem 1.25rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-secondary:hover { background: var(--accent-dark); }
+
+.btn-danger { background: #dc2626; color: white; font-weight: 600; padding: 0.4rem 1rem; border-radius: 8px; cursor: pointer; }
+.btn-danger:hover { background: #b91c1c; }
+
+/* ── Formuliervelden ────────────────────────────────────────────── */
+.input {
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  width: 100%;
+}
+.input:focus  { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(245,196,0,0.15); }
+
+.select {
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+}
+.select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(245,196,0,0.15); }
+
+/* ── Formulier-labels ───────────────────────────────────────────── */
+.form-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+/* ── Positiebadges ──────────────────────────────────────────────── */
+.badge-GK  { background: #7c3aed; color: white; }
+.badge-DEF { background: var(--accent); color: white; }
+.badge-MID { background: #0891b2; color: white; }
+.badge-FWD { background: #dc2626; color: white; }
+
+/* ── Niveaudots ─────────────────────────────────────────────────── */
+.level-dot       { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--primary); margin: 0 1px; }
+.level-dot-empty { background: var(--border); }
+
+/* ── Koppen in content-kaarten ──────────────────────────────────── */
+.section-title { color: var(--heading); }
+
+/* ── Sub-kaarten (team/poule boxes binnen card) ─────────────────── */
+.sub-card       { background: var(--sub-card); border-radius: 8px; padding: 0.75rem; border: 1px solid var(--border); }
+.sub-card-title { font-weight: 700; color: var(--text); margin-bottom: 0.5rem; }
+
+/* ── Tabellen ───────────────────────────────────────────────────── */
+.table-header { color: var(--text-muted); text-align: left; border-bottom: 1px solid var(--border); }
+.table-row    { border-bottom: 1px solid var(--border-light); }
+tr:hover td   { background: rgba(30,111,197,0.05); }
+
+/* Standaard-kolommen standen */
+.col-neutral { text-align: center; color: var(--text-muted); }
+.col-win     { text-align: center; color: var(--win-color); }
+.col-loss    { text-align: center; color: var(--loss-color); }
+.col-pts     { text-align: center; font-weight: 700; color: var(--text); }
+
+/* ── Wedstrijd-rijen ────────────────────────────────────────────── */
+.match-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: white;
+  border: 1px solid var(--border);
+}
+.match-row-played { border-color: #fde68a; background: #fefce8; }
+
+.match-time { font-size: 0.875rem; font-family: monospace; color: var(--accent); width: 3rem; flex-shrink: 0; }
+
+/* ── Winnaar highlight ──────────────────────────────────────────── */
+.winner { background: rgba(245,196,0,0.1); }
+
+/* ── Winst-tekst (teamnaam bij gewonnen wedstrijd) ──────────────── */
+.win-text { color: var(--win-color); }
+
+/* ── Lege staat ─────────────────────────────────────────────────── */
+.empty-state { color: var(--text-muted); font-size: 0.875rem; }
+
+/* ── Code-inline (configuratiefout) ─────────────────────────────── */
+.code-inline { background: #f1f5f9; padding: 0 0.25rem; border-radius: 4px; color: #475569; }
+
+/* ── Laadanimatie ───────────────────────────────────────────────── */
+.animate-spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
