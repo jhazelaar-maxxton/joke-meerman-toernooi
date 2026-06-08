@@ -23,9 +23,13 @@ create table players (
   name text not null,
   position text not null check (position in ('GK', 'DEF', 'MID', 'FWD')),
   level integer not null check (level between 1 and 5),
+  goals integer not null default 0,
   team_id uuid references teams(id) on delete set null,
   created_at timestamptz default now()
 );
+
+-- Migratie (alleen nodig als de tabel al bestond zonder goals-kolom):
+-- alter table players add column if not exists goals integer not null default 0;
 
 -- Poules
 create table groups (

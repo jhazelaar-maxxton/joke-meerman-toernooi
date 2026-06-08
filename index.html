@@ -562,6 +562,18 @@ function AdminPlayers({ players, teams, refresh }) {
   const [level, setLevel] = useState(3);
   const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState('');
+  const [goalEdits, setGoalEdits] = useState({});
+  const [savingGoals, setSavingGoals] = useState(null);
+
+  async function saveGoals(playerId) {
+    const goals = goalEdits[playerId];
+    if (goals === undefined) return;
+    setSavingGoals(playerId);
+    await sb.from('players').update({ goals: Math.max(0, parseInt(goals) || 0) }).eq('id', playerId);
+    setSavingGoals(null);
+    setGoalEdits(prev => { const n = {...prev}; delete n[playerId]; return n; });
+    refresh();
+  }
 
   async function addPlayer(e) {
     e.preventDefault();
@@ -633,6 +645,7 @@ function AdminPlayers({ players, teams, refresh }) {
                   <th className="pb-2">Positie</th>
                   <th className="pb-2">Niveau</th>
                   <th className="pb-2">Team</th>
+                  <th className="pb-2 text-center">Doelpunten</th>
                   <th className="pb-2"></th>
                 </tr>
               </thead>
@@ -643,6 +656,21 @@ function AdminPlayers({ players, teams, refresh }) {
                     <td className="py-2"><PosBadge pos={p.position} /></td>
                     <td className="py-2"><LevelDots level={p.level} /></td>
                     <td className="py-2 text-slate-400">{teamName(p.team_id)}</td>
+                    <td className="py-2">
+                      <div className="flex items-center gap-1 justify-center">
+                        <input
+                          type="number" min="0" max="99"
+                          className="input w-14 text-center text-sm py-1"
+                          value={goalEdits[p.id] !== undefined ? goalEdits[p.id] : (p.goals || 0)}
+                          onChange={e => setGoalEdits(prev => ({ ...prev, [p.id]: e.target.value }))}
+                        />
+                        {goalEdits[p.id] !== undefined && (
+                          <button className="btn-primary text-xs py-1 px-2" onClick={() => saveGoals(p.id)} disabled={savingGoals === p.id}>
+                            {savingGoals === p.id ? <Spinner /> : '✓'}
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-2">
                       <button className="btn-danger text-xs py-1 px-2" onClick={() => deletePlayer(p.id)}>✕</button>
                     </td>
@@ -1773,9 +1801,44 @@ function PublicFinales({ groups, groupTeams, teams, matches }) {
   );
 }
 
+// ─── Topscorer Klassement ─────────────────────────────────────
+
+function TopScorers({ players }) {
+  const scorers = [...players]
+    .filter(p => (p.goals || 0) > 0)
+    .sort((a, b) => (b.goals || 0) - (a.goals || 0))
+    .slice(0, 10);
+
+  if (scorers.length === 0) return null;
+
+  return (
+    <div className="card">
+      <h3 className="text-xl font-bold section-title mb-3">⚽ Topscorer Klassement</h3>
+      <table className="w-full">
+        <thead>
+          <tr className="table-header text-sm">
+            <th className="pb-2 text-left w-7">#</th>
+            <th className="pb-2 text-left">Speler</th>
+            <th className="pb-2 text-center w-16">Goals</th>
+          </tr>
+        </thead>
+        <tbody>
+          {scorers.map((p, i) => (
+            <tr key={p.id} className="table-row">
+              <td className="py-2 text-slate-500 text-base">{i + 1}</td>
+              <td className={`py-2 font-bold text-xl ${i === 0 ? 'text-yellow-600' : ''}`}>{p.name}</td>
+              <td className={`py-2 text-center font-bold text-2xl col-pts ${i === 0 ? 'text-yellow-600' : ''}`}>{p.goals}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── Overzicht (TV-modus) ─────────────────────────────────────
 
-function PublicOverview({ matches, teams, groups, groupTeams }) {
+function PublicOverview({ matches, teams, groups, groupTeams, players }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -1874,7 +1937,7 @@ function PublicOverview({ matches, teams, groups, groupTeams }) {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
-      {/* LEFT — Poulestanden */}
+      {/* LEFT — Poulestanden + Topscorers */}
       <div className="xl:col-span-2 space-y-5">
         <h2 className="text-2xl font-bold text-slate-800 tracking-wide">Poulestanden</h2>
         {standingsPerGroup.length === 0 ? (
@@ -1911,6 +1974,7 @@ function PublicOverview({ matches, teams, groups, groupTeams }) {
             <p className="text-xs text-slate-600 mt-2">Groen = door naar kruis finales</p>
           </div>
         ))}
+        <TopScorers players={players} />
       </div>
 
       {/* RIGHT — Speelschema */}
@@ -2183,7 +2247,7 @@ function App() {
 
       {/* Content */}
       <div className={`mx-auto px-4 py-6 ${view === 'overzicht' ? 'max-w-7xl' : 'max-w-4xl'}`}>
-        {view === 'overzicht'  && <PublicOverview matches={matches} teams={teams} groups={groups} groupTeams={groupTeams} />}
+        {view === 'overzicht'  && <PublicOverview matches={matches} teams={teams} groups={groups} groupTeams={groupTeams} players={players} />}
         {view === 'schema'    && <PublicSchedule matches={matches} teams={teams} groups={groups} />}
         {view === 'standen'   && <PublicStandings groups={groups} groupTeams={groupTeams} teams={teams} matches={matches} />}
         {view === 'uitslagen' && <PublicResults matches={matches} teams={teams} groups={groups} />}
