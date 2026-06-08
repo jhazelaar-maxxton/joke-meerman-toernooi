@@ -179,6 +179,59 @@ function calcStandings(teams, matches) {
   );
 }
 
+// ─── Scheidsrechter berekenen per wedstrijd ───────────────────
+
+function calcReferees(matches, groups, groupTeams) {
+  // Alleen poulewedstrijden (groepen met teams in group_teams)
+  const poolGroupIds = new Set(
+    groups.filter(g => groupTeams.some(gt => gt.group_id === g.id)).map(g => g.id)
+  );
+
+  const groupTeamMap = {};
+  groupTeams.forEach(gt => {
+    if (!groupTeamMap[gt.group_id]) groupTeamMap[gt.group_id] = [];
+    groupTeamMap[gt.group_id].push(gt.team_id);
+  });
+
+  const poolMatches = matches.filter(m => poolGroupIds.has(m.group_id));
+
+  const matchesByTime = {};
+  poolMatches.forEach(m => {
+    const key = m.scheduled_time || 'unknown';
+    if (!matchesByTime[key]) matchesByTime[key] = [];
+    matchesByTime[key].push(m);
+  });
+
+  const sortedSlots = Object.entries(matchesByTime)
+    .sort(([a], [b]) => new Date(a) - new Date(b));
+
+  const refCount = {};
+  const refereeMap = {};
+
+  sortedSlots.forEach(([, slotMatches]) => {
+    const playingTeams = new Set(slotMatches.flatMap(m => [m.home_team_id, m.away_team_id]));
+
+    slotMatches.forEach(m => {
+      const candidates = [];
+      Object.entries(groupTeamMap).forEach(([groupId, teamIds]) => {
+        if (groupId !== m.group_id) {
+          teamIds.forEach(tid => {
+            if (!playingTeams.has(tid)) candidates.push(tid);
+          });
+        }
+      });
+      if (candidates.length === 0) return;
+      // Kies het team met de minste scheidsrechtersbeurten voor eerlijke verdeling
+      candidates.sort((a, b) => (refCount[a] || 0) - (refCount[b] || 0));
+      const chosen = candidates[0];
+      refereeMap[m.id] = chosen;
+      refCount[chosen] = (refCount[chosen] || 0) + 1;
+    });
+  });
+
+  return refereeMap;
+}
+
 // ─── Data hooks ───────────────────────────────────────────────
 
 function useData() {
@@ -764,18 +817,18 @@ function AdminTeams({ players, teams, refresh }) {
           Teams worden automatisch gebalanceerd op positie en niveau (snake draft).
           Je hebt <strong className="text-slate-800">{players.length} spelers</strong> geregistreerd.
         </p>
-        <div className="flex gap-3 items-end">
+        <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="form-label">Aantal teams</label>
             <select className="select" value={numTeams} onChange={e => setNumTeams(e.target.value)}>
               {[4,5,6,7,8].map(n => <option key={n} value={n}>{n} teams</option>)}
             </select>
           </div>
-          <button className="btn-secondary" onClick={generatePreview}>
+          <button className="btn-secondary w-full sm:w-auto" onClick={generatePreview}>
             🔀 Preview genereren
           </button>
           {preview && (
-            <button className="btn-primary" onClick={saveTeams} disabled={generating}>
+            <button className="btn-primary w-full sm:w-auto" onClick={saveTeams} disabled={generating}>
               {generating ? <Spinner /> : '💾 Teams opslaan'}
             </button>
           )}
@@ -921,14 +974,14 @@ function AdminGroups({ teams, groups, groupTeams, matches, refresh }) {
         <p className="text-sm text-slate-400 mb-4">
           Teams worden random verdeeld over de poules. Je hebt <strong className="text-slate-800">{teams.length} teams</strong>.
         </p>
-        <div className="flex gap-3 items-end">
+        <div className="flex flex-wrap gap-3 items-end">
           <div>
             <label className="form-label">Aantal poules</label>
             <select className="select" value={numGroups} onChange={e => setNumGroups(e.target.value)}>
               {[2,3,4].map(n => <option key={n} value={n}>{n} poules</option>)}
             </select>
           </div>
-          <button className="btn-primary" onClick={generateGroups} disabled={generating || teams.length < 2}>
+          <button className="btn-primary w-full sm:w-auto" onClick={generateGroups} disabled={generating || teams.length < 2}>
             {generating ? <Spinner /> : '🎲 Genereer poules'}
           </button>
         </div>
@@ -971,6 +1024,11 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
     });
     return map;
   }, [groups, groupTeams, teams]);
+
+  const refereeMap = useMemo(
+    () => calcReferees(matches, groups, groupTeams),
+    [matches, groups, groupTeams]
+  );
 
   async function generateSchedule() {
     if (!startDate) { alert('Selecteer een startdatum.'); return; }
@@ -1074,7 +1132,7 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
             </select>
           </div>
         </div>
-        <button className="btn-primary" onClick={generateSchedule} disabled={generating || groups.length === 0}>
+        <button className="btn-primary w-full sm:w-auto" onClick={generateSchedule} disabled={generating || groups.length === 0}>
           {generating ? <Spinner /> : '📅 Genereer speelschema'}
         </button>
       </div>
@@ -1091,6 +1149,7 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
                   <th className="pb-2">Thuis</th>
                   <th className="pb-2">Uit</th>
                   <th className="pb-2">Poule</th>
+                  <th className="pb-2">Scheidsrechter</th>
                 </tr>
               </thead>
               <tbody>
@@ -1098,6 +1157,7 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
                   const home = teams.find(t => t.id === m.home_team_id);
                   const away = teams.find(t => t.id === m.away_team_id);
                   const group = groups.find(g => g.id === m.group_id);
+                  const referee = teams.find(t => t.id === refereeMap[m.id]);
                   return (
                     <tr key={m.id} className="table-row">
                       <td className="py-2 text-slate-300">{formatDateTime(m.scheduled_time)}</td>
@@ -1105,6 +1165,15 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
                       <td className="py-2 font-medium">{home?.name || '—'}</td>
                       <td className="py-2 font-medium">{away?.name || '—'}</td>
                       <td className="py-2 text-slate-400">{group?.name || '—'}</td>
+                      <td className="py-2">
+                        {referee
+                          ? <span className="inline-flex items-center gap-1.5 text-yellow-500 font-medium">
+                              <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain inline-block" />
+                              {referee.name}
+                            </span>
+                          : <span className="text-slate-600">—</span>
+                        }
+                      </td>
                     </tr>
                   );
                 })}
@@ -1131,6 +1200,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
   const [finalBreak, setFinalBreak] = useState(5);
   const [finalFields, setFinalFields] = useState(1);
   const [generating, setGenerating] = useState(false);
+  const [savingReferee, setSavingReferee] = useState(null);
 
   const poolGroups = useMemo(() =>
     groups.filter(g => groupTeams.some(gt => gt.group_id === g.id)),
@@ -1165,6 +1235,13 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
     }),
     [poolGroups, groupTeams, teams, matches]
   );
+
+  async function saveReferee(matchId, teamId) {
+    setSavingReferee(matchId);
+    await sb.from('matches').update({ referee_team_id: teamId || null }).eq('id', matchId);
+    setSavingReferee(null);
+    refresh();
+  }
 
   async function deleteKnockout() {
     if (!confirm('Verwijder alle kruis finale wedstrijden?')) return;
@@ -1330,12 +1407,12 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
               {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
             </select></div>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-primary" onClick={generateSemis} disabled={generating || poolGroups.length < 2}>
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-primary w-full sm:w-auto" onClick={generateSemis} disabled={generating || poolGroups.length < 2}>
             {generating ? <Spinner /> : '🏆 Genereer halve finales'}
           </button>
           {(sfGroup || finaleGroup) && (
-            <button className="btn-danger text-sm" onClick={deleteKnockout} disabled={generating}>🗑 Verwijder finales</button>
+            <button className="btn-danger text-sm w-full sm:w-auto" onClick={deleteKnockout} disabled={generating}>🗑 Verwijder finales</button>
           )}
         </div>
       </div>
@@ -1344,34 +1421,54 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
       {sfMatches.length > 0 && (
         <div className="card">
           <h3 className="font-bold section-title mb-3">Halve Finales &amp; Plaatsingswedstrijden</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {sfMatches.map(m => {
               const home = teams.find(t => t.id === m.home_team_id);
               const away = teams.find(t => t.id === m.away_team_id);
               const isPlayed = m.status === 'played';
               const isConsol = m.round_number > nPools;
               return (
-                <div key={m.id} className={"match-row" + (isPlayed ? " match-row-played" : "")}>
-                  <div className={`text-xs font-bold w-28 ${isConsol ? 'text-orange-400' : 'text-blue-400'}`}>{sfLabel(m.round_number)}</div>
-                  <div className="text-xs text-slate-500 w-28 flex-shrink-0">{formatDateTime(m.scheduled_time)}</div>
-                  <div className="flex-1 text-right font-medium">{home?.name || '—'}</div>
-                  <div className="w-20 text-center font-bold">
-                    {isPlayed ? (
-                      <div>
-                        <div>{m.home_score} – {m.away_score}</div>
-                        {m.home_score === m.away_score && m.home_penalties != null && (
-                          <div className="text-xs text-yellow-400">({m.home_penalties}–{m.away_penalties} n.s.)</div>
-                        )}
-                      </div>
-                    ) : <span className="text-slate-500">vs</span>}
+                <div key={m.id} className={`rounded-lg border p-3 space-y-2${isPlayed ? ' border-yellow-200 bg-yellow-50' : ' border-slate-200 bg-white'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs font-bold ${isConsol ? 'text-orange-400' : 'text-blue-400'}`}>{sfLabel(m.round_number)}</span>
+                    <span className="text-xs text-slate-500 text-right">{formatDateTime(m.scheduled_time)} · Veld {m.field_number}</span>
                   </div>
-                  <div className="flex-1 font-medium">{away?.name || '—'}</div>
-                  <div className="text-xs text-slate-500 w-16">Veld {m.field_number}</div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                    <div className="w-16 text-center font-bold text-sm flex-shrink-0">
+                      {isPlayed ? (
+                        <div>
+                          <div>{m.home_score} – {m.away_score}</div>
+                          {m.home_score === m.away_score && m.home_penalties != null && (
+                            <div className="text-xs text-yellow-500">({m.home_penalties}–{m.away_penalties} n.s.)</div>
+                          )}
+                        </div>
+                      ) : <span className="text-slate-400">vs</span>}
+                    </div>
+                    <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain flex-shrink-0" />
+                    <select
+                      className="select text-xs py-0.5 flex-1"
+                      value={m.referee_team_id || ''}
+                      onChange={e => saveReferee(m.id, e.target.value)}
+                      disabled={savingReferee === m.id}
+                    >
+                      <option value="">— Geen scheidsrechter —</option>
+                      {teams
+                        .filter(t => t.id !== m.home_team_id && t.id !== m.away_team_id)
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(t => <option key={t.id} value={t.id}>{t.name}</option>)
+                      }
+                    </select>
+                    {savingReferee === m.id && <Spinner />}
+                  </div>
                 </div>
               );
             })}
           </div>
-          {!sfAllPlayed && <p className="text-xs text-slate-500 mt-2">Voer de uitslagen in via het tabblad "Uitslagen" om daarna de finale te kunnen genereren. Bij gelijkspel zijn ook strafschoppenstanden vereist.</p>}
+          {!sfAllPlayed && <p className="text-xs text-slate-500 mt-3">Voer de uitslagen in via het tabblad "Uitslagen" om daarna de finale te kunnen genereren. Bij gelijkspel zijn ook strafschoppenstanden vereist.</p>}
         </div>
       )}
 
@@ -1397,7 +1494,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
               {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
             </select></div>
         </div>
-        <button className="btn-primary" onClick={generateFinal} disabled={generating || !sfAllPlayed}>
+        <button className="btn-primary w-full sm:w-auto" onClick={generateFinal} disabled={generating || !sfAllPlayed}>
           {generating ? <Spinner /> : '🥇 Genereer finale + 3e plaatswedstrijd'}
         </button>
       </div>
@@ -1406,28 +1503,49 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
       {finaleMatches.length > 0 && (
         <div className="card">
           <h3 className="font-bold section-title mb-3">Finale</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {finaleMatches.map((m, i) => {
               const home = teams.find(t => t.id === m.home_team_id);
               const away = teams.find(t => t.id === m.away_team_id);
               const isPlayed = m.status === 'played';
               const label = i === 0 ? '🥇 Finale' : '🥉 3e Plaats';
               return (
-                <div key={m.id} className={"match-row" + (isPlayed ? " match-row-played" : "")}>
-                  <div className="text-xs text-yellow-400 font-bold w-28">{label}</div>
-                  <div className="text-xs text-slate-500 w-28 flex-shrink-0">{formatDateTime(m.scheduled_time)}</div>
-                  <div className="flex-1 text-right font-medium">{home?.name || '—'}</div>
-                  <div className="w-20 text-center font-bold">
-                    {isPlayed ? (
-                      <div>
-                        <div>{m.home_score} – {m.away_score}</div>
-                        {m.home_score === m.away_score && m.home_penalties != null && (
-                          <div className="text-xs text-yellow-400">({m.home_penalties}–{m.away_penalties} n.s.)</div>
-                        )}
-                      </div>
-                    ) : <span className="text-slate-500">vs</span>}
+                <div key={m.id} className={`rounded-lg border p-3 space-y-2${isPlayed ? ' border-yellow-200 bg-yellow-50' : ' border-slate-200 bg-white'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-yellow-500 font-bold">{label}</span>
+                    <span className="text-xs text-slate-500 text-right">{formatDateTime(m.scheduled_time)}</span>
                   </div>
-                  <div className="flex-1 font-medium">{away?.name || '—'}</div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                    <div className="w-16 text-center font-bold text-sm flex-shrink-0">
+                      {isPlayed ? (
+                        <div>
+                          <div>{m.home_score} – {m.away_score}</div>
+                          {m.home_score === m.away_score && m.home_penalties != null && (
+                            <div className="text-xs text-yellow-500">({m.home_penalties}–{m.away_penalties} n.s.)</div>
+                          )}
+                        </div>
+                      ) : <span className="text-slate-400">vs</span>}
+                    </div>
+                    <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain flex-shrink-0" />
+                    <select
+                      className="select text-xs py-0.5 flex-1"
+                      value={m.referee_team_id || ''}
+                      onChange={e => saveReferee(m.id, e.target.value)}
+                      disabled={savingReferee === m.id}
+                    >
+                      <option value="">— Geen scheidsrechter —</option>
+                      {teams
+                        .filter(t => t.id !== m.home_team_id && t.id !== m.away_team_id)
+                        .sort((a, b) => a.name.localeCompare(b.name))
+                        .map(t => <option key={t.id} value={t.id}>{t.name}</option>)
+                      }
+                    </select>
+                    {savingReferee === m.id && <Spinner />}
+                  </div>
                 </div>
               );
             })}
@@ -1501,7 +1619,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
       {groupedMatches.map(({ group, matches: gMatches }) => (
         <div key={group.id} className="card">
           <h2 className="text-lg font-bold mb-4 section-title">{group.name}</h2>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {gMatches.map(m => {
               const home = teams.find(t => t.id === m.home_team_id);
               const away = teams.find(t => t.id === m.away_team_id);
@@ -1513,42 +1631,44 @@ function AdminResults({ matches, teams, groups, refresh }) {
 
               return (
                 <div key={m.id} className="space-y-1">
-                  <div className={"match-row" + (isPlayed ? " match-row-played" : "")}>
-                    <div className="text-xs text-slate-500 w-28 flex-shrink-0">{formatDateTime(m.scheduled_time)}</div>
-                    <div className="flex-1 font-medium text-right">{home?.name || '—'}</div>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number" min="0" max="99"
-                        className="input w-12 text-center"
-                        value={sc.home}
-                        onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, home: e.target.value } }))}
-                      />
-                      <span className="text-slate-500">–</span>
-                      <input
-                        type="number" min="0" max="99"
-                        className="input w-12 text-center"
-                        value={sc.away}
-                        onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, away: e.target.value } }))}
-                      />
-                    </div>
-                    <div className="flex-1 font-medium">{away?.name || '—'}</div>
-                    <div className="flex gap-1">
-                      <button
-                        className="btn-primary text-xs py-1 px-2"
-                        onClick={() => saveScore(m.id)}
-                        disabled={saving === m.id}
-                      >
-                        {saving === m.id ? <Spinner /> : '✓'}
-                      </button>
-                      {isPlayed && (
-                        <button className="btn-secondary text-xs py-1 px-2" onClick={() => clearScore(m.id)}>↩</button>
-                      )}
+                  <div className={`rounded-lg border p-3${isPlayed ? ' border-yellow-200 bg-yellow-50' : ' border-slate-200 bg-white'}`}>
+                    <div className="text-xs text-slate-500 mb-2">{formatDateTime(m.scheduled_time)}</div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <input
+                          type="number" min="0" max="99"
+                          className="input w-12 text-center"
+                          value={sc.home}
+                          onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, home: e.target.value } }))}
+                        />
+                        <span className="text-slate-400 select-none">–</span>
+                        <input
+                          type="number" min="0" max="99"
+                          className="input w-12 text-center"
+                          value={sc.away}
+                          onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, away: e.target.value } }))}
+                        />
+                      </div>
+                      <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                      <div className="flex gap-1 flex-shrink-0">
+                        <button
+                          className="btn-primary text-xs py-1 px-2"
+                          onClick={() => saveScore(m.id)}
+                          disabled={saving === m.id}
+                        >
+                          {saving === m.id ? <Spinner /> : '✓'}
+                        </button>
+                        {isPlayed && (
+                          <button className="btn-secondary text-xs py-1 px-2" onClick={() => clearScore(m.id)}>↩</button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   {needsPenalties && (
                     <div className="flex items-center gap-2 px-2 py-1.5 bg-yellow-950 rounded text-sm border border-yellow-900">
                       <span className="text-xs text-yellow-400 flex-shrink-0">⚽ Strafschoppen:</span>
-                      <span className="text-xs text-slate-300 flex-shrink-0">{home?.name}</span>
+                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-16">{home?.name}</span>
                       <input
                         type="number" min="0" max="20"
                         className="input w-10 text-center text-xs py-0.5"
@@ -1562,7 +1682,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
                         value={sc.away_penalties}
                         onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, away_penalties: e.target.value } }))}
                       />
-                      <span className="text-xs text-slate-300 flex-shrink-0">{away?.name}</span>
+                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-16">{away?.name}</span>
                     </div>
                   )}
                 </div>
@@ -1582,9 +1702,65 @@ function AdminResults({ matches, teams, groups, refresh }) {
 // PUBLIEKE VIEWS
 // ================================================================
 
+// ─── Gedeelde match-kaart component (mobiel-vriendelijk) ──────
+
+function PublicMatchCard({ m, teams, groups, refereeTeam, labelText, labelColor, showTime = true }) {
+  const home = teams.find(t => t.id === m.home_team_id);
+  const away = teams.find(t => t.id === m.away_team_id);
+  const group = groups.find(g => g.id === m.group_id);
+  const isPlayed = m.status === 'played';
+  const hasPenalties = isPlayed && m.home_score === m.away_score &&
+                       m.home_penalties != null && m.away_penalties != null;
+  const homeWin = isPlayed && (m.home_score > m.away_score ||
+                  (hasPenalties && m.home_penalties > m.away_penalties));
+  const awayWin = isPlayed && (m.away_score > m.home_score ||
+                  (hasPenalties && m.away_penalties > m.home_penalties));
+  const label = labelText || group?.name || '';
+  return (
+    <div className={`match-card${isPlayed ? ' match-card-played' : ''}`}>
+      <div className="match-card-meta">
+        {showTime && <span className="match-card-time">{formatTime(m.scheduled_time)}</span>}
+        <span>Veld {m.field_number}</span>
+        {label && <span className={`ml-auto font-medium ${labelColor || 'text-slate-500'}`}>{label}</span>}
+      </div>
+      <div className="match-card-row">
+        <div className={`match-card-team text-right ${homeWin ? 'win-text' : isPlayed && !homeWin ? 'text-slate-400' : ''}`}>
+          {home?.name || '—'}
+        </div>
+        <div className="match-card-score">
+          {isPlayed
+            ? <span>{m.home_score} – {m.away_score}</span>
+            : <span className="text-slate-400 text-sm">vs</span>}
+        </div>
+        <div className={`match-card-team ${awayWin ? 'win-text' : isPlayed && !awayWin ? 'text-slate-400' : ''}`}>
+          {away?.name || '—'}
+        </div>
+      </div>
+      {hasPenalties && (
+        <div className="text-center text-xs text-yellow-600 mt-1 font-medium">
+          ({m.home_penalties}–{m.away_penalties} n.s.)
+        </div>
+      )}
+      {refereeTeam && (
+        <div className="match-card-referee">
+          <img src="football-referee.png" alt="sch" className="w-3.5 h-3.5 object-contain" />
+          <span>{refereeTeam.name}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Speelschema publiek ─────────────────────────────────────
 
-function PublicSchedule({ matches, teams, groups }) {
+function PublicSchedule({ matches, teams, groups, groupTeams }) {
+  const [teamFilter, setTeamFilter] = useState('');
+
+  const refereeMap = useMemo(
+    () => calcReferees(matches, groups, groupTeams || []),
+    [matches, groups, groupTeams]
+  );
+
   const groupedByDate = useMemo(() => {
     const map = {};
     matches.forEach(m => {
@@ -1595,47 +1771,66 @@ function PublicSchedule({ matches, teams, groups }) {
     return Object.entries(map).sort(([a], [b]) => new Date(a) - new Date(b));
   }, [matches]);
 
+  const filtered = useMemo(() => {
+    const q = teamFilter.trim().toLowerCase();
+    if (!q) return groupedByDate;
+    return groupedByDate.map(([date, ms]) => [
+      date,
+      ms.filter(m => {
+        const h = teams.find(t => t.id === m.home_team_id)?.name?.toLowerCase() || '';
+        const a = teams.find(t => t.id === m.away_team_id)?.name?.toLowerCase() || '';
+        return h.includes(q) || a.includes(q);
+      }),
+    ]).filter(([, ms]) => ms.length > 0);
+  }, [groupedByDate, teamFilter, teams]);
+
   if (matches.length === 0) {
     return <div className="card empty-state">Speelschema is nog niet beschikbaar.</div>;
   }
 
   return (
-    <div className="space-y-5">
-      {groupedByDate.map(([date, dayMatches]) => (
-        <div key={date} className="card">
-          <h3 className="font-bold section-title mb-3">{formatDate(dayMatches[0]?.scheduled_time)}</h3>
-          <div className="space-y-2">
-            {dayMatches.map(m => {
-              const home = teams.find(t => t.id === m.home_team_id);
-              const away = teams.find(t => t.id === m.away_team_id);
-              const group = groups.find(g => g.id === m.group_id);
-              const isPlayed = m.status === 'played';
-
-              return (
-                <div key={m.id} className="match-row">
-                  <div className="match-time">{formatTime(m.scheduled_time)}</div>
-                  <div className="text-xs text-slate-500 w-14">Veld {m.field_number}</div>
-                  <div className="flex-1 text-right font-medium">{home?.name || '—'}</div>
-                  <div className="text-center w-20 font-bold">
-                    {isPlayed ? (
-                      <div>
-                        <span className="text-slate-800 font-bold">{m.home_score} – {m.away_score}</span>
-                        {m.home_score === m.away_score && m.home_penalties != null && (
-                          <div className="text-xs text-yellow-600">({m.home_penalties}–{m.away_penalties} n.s.)</div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-500">vs</span>
-                    )}
+    <div className="space-y-4">
+      <div className="card py-3">
+        <input
+          className="input"
+          placeholder="🔍 Zoek op teamnaam…"
+          value={teamFilter}
+          onChange={e => setTeamFilter(e.target.value)}
+        />
+      </div>
+      {filtered.map(([date, dayMatches]) => {
+        const slotMap = {};
+        dayMatches.forEach(m => {
+          const key = m.scheduled_time || 'unknown';
+          if (!slotMap[key]) slotMap[key] = [];
+          slotMap[key].push(m);
+        });
+        const slots = Object.entries(slotMap).sort(([a], [b]) => new Date(a) - new Date(b));
+        return (
+          <div key={date} className="card">
+            <h3 className="font-bold section-title mb-4">{formatDate(dayMatches[0]?.scheduled_time)}</h3>
+            <div className="space-y-4">
+              {slots.map(([time, slotMatches]) => (
+                <div key={time}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="match-card-time">{formatTime(time)}</span>
+                    <div className="flex-1 border-t" style={{borderColor:'var(--border)'}} />
                   </div>
-                  <div className="flex-1 font-medium">{away?.name || '—'}</div>
-                  <div className="text-xs text-slate-500 w-16 text-right">{group?.name}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {slotMatches.map(m => {
+                      const referee = teams.find(t => t.id === refereeMap[m.id]);
+                      return <PublicMatchCard key={m.id} m={m} teams={teams} groups={groups} refereeTeam={referee} showTime={false} />;
+                    })}
+                  </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
+      {filtered.length === 0 && teamFilter && (
+        <div className="card empty-state">Geen wedstrijden gevonden voor "{teamFilter}".</div>
+      )}
     </div>
   );
 }
@@ -1668,12 +1863,13 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
       {poolGroups.map(g => {
         const standings = calcStandings(teamsByGroup[g.id] || [], matchesByGroup[g.id] || []);
         return (
           <div key={g.id} className="card">
             <h3 className="font-bold section-title mb-3">{g.name}</h3>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="table-header">
@@ -1683,8 +1879,8 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
                   <th className="pb-2 text-center">W</th>
                   <th className="pb-2 text-center">G</th>
                   <th className="pb-2 text-center">V</th>
-                  <th className="pb-2 text-center">DV</th>
-                  <th className="pb-2 text-center">DT</th>
+                  <th className="pb-2 text-center hidden sm:table-cell">DV</th>
+                  <th className="pb-2 text-center hidden sm:table-cell">DT</th>
                   <th className="pb-2 text-center">Pnt</th>
                 </tr>
               </thead>
@@ -1697,14 +1893,15 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
                     <td className="py-2 col-win">{s.w}</td>
                     <td className="py-2 col-neutral">{s.d}</td>
                     <td className="py-2 col-loss">{s.l}</td>
-                    <td className="py-2 text-center">{s.gf}</td>
-                    <td className="py-2 text-center">{s.ga}</td>
+                    <td className="py-2 text-center hidden sm:table-cell">{s.gf}</td>
+                    <td className="py-2 text-center hidden sm:table-cell">{s.ga}</td>
                     <td className="py-2 col-pts">{s.pts}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="text-xs text-slate-600 mt-2">S=Gespeeld, W=Gewonnen, G=Gelijk, V=Verloren, DV=Doelpunten voor, DT=Doelpunten tegen, Pnt=Punten</div>
+            </div>
+            <div className="text-xs text-slate-600 mt-2">S=Gespeeld, W=Gewonnen, G=Gelijk, V=Verloren, <span className="hidden sm:inline">DV=Doelpunten voor, DT=Doelpunten tegen, </span>Pnt=Punten</div>
           </div>
         );
       })}
@@ -1734,33 +1931,16 @@ function PublicFinales({ groups, groupTeams, teams, matches }) {
   }
 
   function KnockoutRow({ match, label, labelColor }) {
-    const home = teams.find(t => t.id === match.home_team_id);
-    const away = teams.find(t => t.id === match.away_team_id);
-    const isPlayed = match.status === 'played';
-    const hasPenalties = isPlayed && match.home_score === match.away_score &&
-                         match.home_penalties != null && match.away_penalties != null;
-    const homeWinPen = hasPenalties && match.home_penalties > match.away_penalties;
-    const awayWinPen = hasPenalties && match.away_penalties > match.home_penalties;
-    const homeWin = isPlayed && (match.home_score > match.away_score || homeWinPen);
-    const awayWin = isPlayed && (match.away_score > match.home_score || awayWinPen);
+    const referee = teams.find(t => t.id === match.referee_team_id);
     return (
-      <div className="match-row">
-        <div className="match-time">{formatTime(match.scheduled_time)}</div>
-        <div className="text-xs text-slate-500 w-14">Veld {match.field_number}</div>
-        <div className={`flex-1 text-right font-medium ${homeWin ? 'win-text' : ''}`}>{home?.name || '—'}</div>
-        <div className="text-center w-20 font-bold flex-shrink-0">
-          {isPlayed ? (
-            <div>
-              <span className="text-slate-800 font-bold">{match.home_score} – {match.away_score}</span>
-              {hasPenalties && (
-                <div className="text-xs text-yellow-600">({match.home_penalties}–{match.away_penalties} n.s.)</div>
-              )}
-            </div>
-          ) : <span className="text-slate-500">vs</span>}
-        </div>
-        <div className={`flex-1 font-medium ${awayWin ? 'win-text' : ''}`}>{away?.name || '—'}</div>
-        <div className={`text-xs w-24 text-right font-medium ${labelColor || 'text-slate-500'}`}>{label}</div>
-      </div>
+      <PublicMatchCard
+        m={match}
+        teams={teams}
+        groups={groups}
+        refereeTeam={referee}
+        labelText={label}
+        labelColor={labelColor}
+      />
     );
   }
 
@@ -1772,7 +1952,7 @@ function PublicFinales({ groups, groupTeams, teams, matches }) {
       {actualSFs.length > 0 && (
         <div className="card">
           <h3 className="font-bold section-title mb-3">Halve Finales</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {actualSFs.map(m => <KnockoutRow key={m.id} match={m} label={sfLabel(m.round_number)} labelColor="text-blue-400" />)}
           </div>
         </div>
@@ -1780,7 +1960,7 @@ function PublicFinales({ groups, groupTeams, teams, matches }) {
       {consolation.length > 0 && (
         <div className="card">
           <h3 className="font-bold section-title mb-3">Plaatsingswedstrijden</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {consolation.map(m => <KnockoutRow key={m.id} match={m} label={sfLabel(m.round_number)} labelColor="text-orange-400" />)}
           </div>
         </div>
@@ -1788,7 +1968,7 @@ function PublicFinales({ groups, groupTeams, teams, matches }) {
       {finaleMatches.length > 0 && (
         <div className="card">
           <h3 className="font-bold section-title mb-3">Finale</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {finaleMatches.map((m, i) => (
               <KnockoutRow key={m.id} match={m}
                 label={i === 0 ? '🥇 Finale' : '🥉 3e Plaats'}
@@ -1910,26 +2090,30 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
     const awayWin = played && (m.away_score > m.home_score || awayWinPen);
 
     return (
-      <div className={`match-row py-3 ${played ? 'match-row-played' : ''}`}>
-        <div className="text-base text-slate-400 w-16 flex-shrink-0 font-mono">{formatTime(m.scheduled_time)}</div>
-        <div className="text-sm text-slate-500 w-16 flex-shrink-0">Veld {m.field_number}</div>
-        <div className={`flex-1 text-right font-bold text-xl leading-tight ${homeWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
-          {home?.name || '—'}
+      <div className={`match-card${played ? ' match-card-played' : ''}`}>
+        <div className="match-card-meta text-sm">
+          <span className="match-card-time text-sm sm:text-base">{formatTime(m.scheduled_time)}</span>
+          <span className="hidden sm:inline">Veld {m.field_number}</span>
+          <span className="ml-auto">{labelOverride || group?.name || ''}</span>
         </div>
-        <div className="w-24 text-center font-bold text-2xl flex-shrink-0">
-          {played ? (
-            <div>
-              <span className="text-slate-800">{m.home_score} – {m.away_score}</span>
-              {hasPenalties && (
-                <div className="text-xs text-yellow-600 font-normal">({m.home_penalties}–{m.away_penalties} n.s.)</div>
-              )}
-            </div>
-          ) : <span className="text-slate-400 text-base">vs</span>}
+        <div className="match-card-row">
+          <div className={`match-card-team text-right font-bold text-base sm:text-xl ${homeWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
+            {home?.name || '—'}
+          </div>
+          <div className="match-card-score font-bold text-xl sm:text-2xl">
+            {played ? (
+              <div>
+                <span className="text-slate-800">{m.home_score} – {m.away_score}</span>
+                {hasPenalties && (
+                  <div className="text-xs text-yellow-600 font-normal">({m.home_penalties}–{m.away_penalties} n.s.)</div>
+                )}
+              </div>
+            ) : <span className="text-slate-400 text-sm sm:text-base">vs</span>}
+          </div>
+          <div className={`match-card-team font-bold text-base sm:text-xl ${awayWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
+            {away?.name || '—'}
+          </div>
         </div>
-        <div className={`flex-1 font-bold text-xl leading-tight ${awayWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
-          {away?.name || '—'}
-        </div>
-        <div className="text-sm text-slate-500 w-20 text-right flex-shrink-0">{labelOverride || group?.name}</div>
       </div>
     );
   }
@@ -2001,7 +2185,7 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
                   <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded">Gespeeld</span>
                 )}
               </div>
-              <div className="space-y-1">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {slotMatches.map(m => <MatchRow key={m.id} m={m} />)}
               </div>
             </div>
@@ -2012,7 +2196,7 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
         {sfMatches.length > 0 && (
           <div className="card border border-blue-800">
             <h3 className="text-xl font-bold text-blue-400 mb-3">Halve Finales</h3>
-            <div className="space-y-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {sfMatches.map(m => <MatchRow key={m.id} m={m} labelOverride="HF" />)}
             </div>
           </div>
@@ -2053,7 +2237,7 @@ function PublicResults({ matches, teams, groups }) {
       {grouped.map(({ group, matches: gMatches }) => (
         <div key={group.id} className="card">
           <h3 className="font-bold section-title mb-3">{group.name}</h3>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
             {gMatches.map(m => {
               const home = teams.find(t => t.id === m.home_team_id);
               const away = teams.find(t => t.id === m.away_team_id);
@@ -2061,14 +2245,22 @@ function PublicResults({ matches, teams, groups }) {
               const homeWin = m.home_score > m.away_score || (hasPenalties && m.home_penalties > m.away_penalties);
               const awayWin = m.away_score > m.home_score || (hasPenalties && m.away_penalties > m.home_penalties);
               return (
-                <div key={m.id} className="match-row">
-                  <div className="text-xs text-slate-500 w-28">{formatDateTime(m.scheduled_time)}</div>
-                  <div className={`flex-1 text-right font-medium ${homeWin ? 'win-text' : ''}`}>{home?.name || '—'}</div>
-                  <div className="w-20 text-center font-bold text-slate-800 text-lg">
-                    <div>{m.home_score} – {m.away_score}</div>
-                    {hasPenalties && <div className="text-xs text-yellow-600 font-normal">({m.home_penalties}–{m.away_penalties} n.s.)</div>}
+                <div key={m.id} className="match-card match-card-played">
+                  <div className="match-card-meta">
+                    <span className="text-slate-500">{formatDateTime(m.scheduled_time)}</span>
                   </div>
-                  <div className={`flex-1 font-medium ${awayWin ? 'win-text' : ''}`}>{away?.name || '—'}</div>
+                  <div className="match-card-row">
+                    <div className={`match-card-team text-right ${homeWin ? 'win-text' : ''}`}>{home?.name || '—'}</div>
+                    <div className="match-card-score text-lg">
+                      <div>{m.home_score} – {m.away_score}</div>
+                    </div>
+                    <div className={`match-card-team ${awayWin ? 'win-text' : ''}`}>{away?.name || '—'}</div>
+                  </div>
+                  {hasPenalties && (
+                    <div className="text-center text-xs text-yellow-600 mt-1 font-medium">
+                      ({m.home_penalties}–{m.away_penalties} n.s.)
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2164,22 +2356,22 @@ function App() {
     return (
       <div className="min-h-screen">
         {/* Header */}
-        <div className="border-b border-blue-900 px-4 py-3 flex items-center justify-between" style={{background:'#0a1628'}}>
-          <div className="flex items-center gap-3">
-            <img src="svod_logo.png" alt="SVOD'22" className="h-10 w-auto" />
-            <span className="font-bold text-white">{CONFIG.TOURNAMENT_NAME}</span>
-            <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded">Admin</span>
+        <div className="border-b border-blue-900 px-3 sm:px-4 py-3 flex items-center justify-between" style={{background:'#0a1628'}}>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <img src="svod_logo.png" alt="SVOD'22" className="h-8 sm:h-10 w-auto" />
+            <span className="font-bold text-white text-sm sm:text-base">{CONFIG.TOURNAMENT_NAME}</span>
+            <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded hidden sm:inline">Admin</span>
           </div>
-          <button className="btn-secondary text-sm" onClick={() => setShowAdminPanel(false)}>← Publiek</button>
+          <button className="btn-secondary text-xs sm:text-sm" onClick={() => setShowAdminPanel(false)}>← Publiek</button>
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-blue-900 px-4 overflow-x-auto" style={{background:'#0d1b35'}}>
+        <div className="border-b border-blue-900 px-2 sm:px-4 overflow-x-auto" style={{background:'#0d1b35'}}>
           <div className="flex gap-1 min-w-max">
             {adminTabs.map(tab => (
               <button
                 key={tab.id}
-                className={`px-4 py-3 text-sm font-medium transition-colors ${adminView === tab.id ? 'tab-active' : 'text-slate-400 hover:text-white'}`}
+                className={`px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${adminView === tab.id ? 'tab-active' : 'text-slate-400 hover:text-white'}`}
                 onClick={() => setAdminView(tab.id)}
               >
                 {tab.label}
@@ -2189,7 +2381,7 @@ function App() {
         </div>
 
         {/* Content */}
-        <div className="max-w-4xl mx-auto px-4 py-6">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
           {adminView === 'spelers'  && <AdminPlayers players={players} teams={teams} refresh={refresh} />}
           {adminView === 'teams'    && <AdminTeams players={players} teams={teams} refresh={refresh} />}
           {adminView === 'poules'   && <AdminGroups teams={teams} groups={groups} groupTeams={groupTeams} matches={matches} refresh={refresh} />}
@@ -2214,29 +2406,29 @@ function App() {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <div className="border-b border-blue-900 px-4 py-4" style={{background:'#0a1628'}}>
+      <div className="border-b border-blue-900 px-3 sm:px-4 py-3 sm:py-4" style={{background:'#0a1628'}}>
         <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <img src="svod_logo.png" alt="SVOD'22" className="h-12 w-auto" />
+          <div className="flex items-center gap-2 sm:gap-4">
+            <img src="svod_logo.png" alt="SVOD'22" className="h-9 sm:h-12 w-auto" />
             <div>
-              <div className="font-bold text-white text-lg">{CONFIG.TOURNAMENT_NAME}</div>
-              <div className="text-xs text-blue-300">{teams.length} teams · {matches.length} wedstrijden · {groups.length} poules</div>
+              <div className="font-bold text-white text-sm sm:text-lg leading-tight">{CONFIG.TOURNAMENT_NAME}</div>
+              <div className="text-xs text-blue-300 hidden sm:block">{teams.length} teams · {matches.length} wedstrijden · {groups.length} poules</div>
             </div>
           </div>
           <button
-            className="text-blue-700 hover:text-blue-400 text-xs"
+            className="text-blue-700 hover:text-blue-400 text-base p-1"
             onClick={() => setShowAdminPanel(true)}
           >⚙</button>
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-blue-900 px-4" style={{background:'#0d1b35'}}>
-        <div className="max-w-4xl mx-auto flex">
+      <div className="border-b border-blue-900 overflow-x-auto" style={{background:'#0d1b35'}}>
+        <div className="max-w-4xl mx-auto flex px-2 sm:px-4">
           {publicTabs.map(tab => (
             <button
               key={tab.id}
-              className={`px-5 py-3 text-sm font-medium transition-colors ${view === tab.id ? 'tab-active' : 'text-slate-400 hover:text-white'}`}
+              className={`px-3 sm:px-5 py-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${view === tab.id ? 'tab-active' : 'text-slate-400 hover:text-white'}`}
               onClick={() => setView(tab.id)}
             >
               {tab.label}
@@ -2246,9 +2438,9 @@ function App() {
       </div>
 
       {/* Content */}
-      <div className={`mx-auto px-4 py-6 ${view === 'overzicht' ? 'max-w-7xl' : 'max-w-4xl'}`}>
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 xl:px-6 py-4 sm:py-6">
         {view === 'overzicht'  && <PublicOverview matches={matches} teams={teams} groups={groups} groupTeams={groupTeams} players={players} />}
-        {view === 'schema'    && <PublicSchedule matches={matches} teams={teams} groups={groups} />}
+        {view === 'schema'    && <PublicSchedule matches={matches} teams={teams} groups={groups} groupTeams={groupTeams} />}
         {view === 'standen'   && <PublicStandings groups={groups} groupTeams={groupTeams} teams={teams} matches={matches} />}
         {view === 'uitslagen' && <PublicResults matches={matches} teams={teams} groups={groups} />}
         {view === 'finales'   && <PublicFinales groups={groups} groupTeams={groupTeams} teams={teams} matches={matches} />}
