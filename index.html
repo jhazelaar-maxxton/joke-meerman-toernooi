@@ -71,6 +71,46 @@ function Spinner() {
   return <div className="animate-spin w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full inline-block" />;
 }
 
+function ClubBadge({ name, size = 22 }) {
+  const club = CLUB_DATA[name];
+  if (!club) return null;
+  const { abbr, bg, fg, logo } = club;
+  const [imgFailed, setImgFailed] = useState(false);
+
+  if (logo && !imgFailed) {
+    return (
+      <img
+        src={logo}
+        alt={abbr}
+        width={size}
+        height={size}
+        style={{flexShrink:0,objectFit:'contain',verticalAlign:'middle'}}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
+  const fs = abbr.length >= 4 ? Math.round(size * 0.30) : abbr.length === 3 ? Math.round(size * 0.34) : Math.round(size * 0.40);
+  return (
+    <svg width={size} height={Math.round(size * 1.2)} viewBox="0 0 40 48" style={{flexShrink:0,verticalAlign:'middle'}} aria-hidden="true">
+      <path d="M20 2 L38 8 L38 27 C38 37 20 46 20 46 C20 46 2 37 2 27 L2 8 Z" fill={bg}/>
+      <path d="M20 5 L35 11 L35 27 C35 36 20 43 20 43 C20 43 5 36 5 27 L5 11 Z" fill="none" stroke={fg} strokeWidth="1" strokeOpacity="0.3"/>
+      <text x="20" y="28" textAnchor="middle" dominantBaseline="middle" fontSize={fs} fontWeight="bold" fill={fg} fontFamily="system-ui,Arial,sans-serif">{abbr}</text>
+    </svg>
+  );
+}
+
+function TeamName({ name, size, reverse }) {
+  if (!name) return <span>—</span>;
+  const badge = <ClubBadge name={name} size={size || 20} />;
+  const label = <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{name}</span>;
+  return (
+    <span style={{display:'inline-flex',alignItems:'center',gap:'0.35rem',maxWidth:'100%',minWidth:0}}>
+      {reverse ? <>{label}{badge}</> : <>{badge}{label}</>}
+    </span>
+  );
+}
+
 // ─── Team generatie algoritme ─────────────────────────────────
 
 function generateBalancedTeams(players, numTeams) {
@@ -738,11 +778,27 @@ function AdminPlayers({ players, teams, refresh }) {
   );
 }
 
-// ─── WK 2026 poules ───────────────────────────────────────────
+// ─── Clubs per land (teamnamen bij indeling) ─────────────────
 
-const WK_POULE_VS     = ['Verenigde Staten', 'Paraguay', 'Australië', 'Turkije'];
-const WK_POULE_CANADA = ['Canada', 'Zwitserland', 'Bosnië-Herzegovina', 'Qatar'];
-const WK_ALLE_LANDEN  = [...WK_POULE_VS, ...WK_POULE_CANADA]; // 8 landen totaal
+const CLUBS_VS     = ['Appalachian FC', 'Providence City', 'Detroit City FC', 'Oakland Roots'];
+const CLUBS_CANADA = ['TSS Rovers FC', 'Scrosoppi FC', 'Simcoe County Rovers FC'];
+const CLUBS_MEXICO = ['Artesanos Metepec FC', 'Aguacateros Club Deportivo Uruapan', 'Faraones de Texcoco', 'Sporting Canamy'];
+const ALLE_CLUBS   = [...CLUBS_VS, ...CLUBS_CANADA, ...CLUBS_MEXICO]; // 11 clubs totaal
+
+const CLUB_DATA = {
+  // logo: bestandsnaam van het logo in dezelfde map als index.html (optioneel — valt terug op schildbadge)
+  'Appalachian FC':                     { abbr: 'AFC',  bg: '#1a3a1a', fg: '#f0f0f0', logo: 'logo-appalachian-fc.png' },
+  'Providence City':                    { abbr: 'PC',   bg: '#8b0000', fg: '#ffffff', logo: 'logo-providence-city.png' },
+  'Detroit City FC':                    { abbr: 'DCFC', bg: '#c8102e', fg: '#ffffff', logo: 'logo-detroit-city-fc.png' },
+  'Oakland Roots':                      { abbr: 'OR',   bg: '#006341', fg: '#ffffff', logo: 'logo-oakland-roots.png' },
+  'TSS Rovers FC':                      { abbr: 'TSS',  bg: '#005f86', fg: '#ffffff', logo: 'logo-tss-rovers-fc.png' },
+  'Scrosoppi FC':                       { abbr: 'SFC',  bg: '#003087', fg: '#ffd700', logo: 'logo-scrosoppi-fc.png' },
+  'Simcoe County Rovers FC':            { abbr: 'SCR',  bg: '#002147', fg: '#ffc72c', logo: 'logo-simcoe-county-rovers.png' },
+  'Artesanos Metepec FC':               { abbr: 'AMF',  bg: '#7b2d8b', fg: '#ffffff', logo: 'logo-artesanos-metepec-fc.png' },
+  'Aguacateros Club Deportivo Uruapan': { abbr: 'AGU',  bg: '#2d7a2d', fg: '#ffffff', logo: 'logo-aguacateros-uruapan.png' },
+  'Faraones de Texcoco':                { abbr: 'FDT',  bg: '#8b6914', fg: '#ffffff', logo: 'logo-faraones-de-texcoco.png' },
+  'Sporting Canamy':                    { abbr: 'SC',   bg: '#1a1a1a', fg: '#00c851', logo: 'logo-sporting-canamy.png' },
+};
 
 // ─── Team generatie ───────────────────────────────────────────
 
@@ -753,14 +809,10 @@ function AdminTeams({ players, teams, refresh }) {
   const [preview, setPreview] = useState(null);
 
   function generatePreview() {
-    const n = Math.min(parseInt(numTeams), 8);
-    let geselecteerd;
-    if (n === 8) {
-      geselecteerd = [...WK_ALLE_LANDEN];
-    } else {
-      // Kies random n landen uit de 8 WK-landen (shuffle + slice)
-      geselecteerd = [...WK_ALLE_LANDEN].sort(() => Math.random() - 0.5).slice(0, n);
-    }
+    const n = Math.min(parseInt(numTeams), ALLE_CLUBS.length);
+    const geselecteerd = n >= ALLE_CLUBS.length
+      ? [...ALLE_CLUBS]
+      : [...ALLE_CLUBS].sort(() => Math.random() - 0.5).slice(0, n);
     const result = generateBalancedTeams(players, n);
     setPreview(result.map((t, i) => ({ ...t, name: geselecteerd[i] })));
   }
@@ -821,7 +873,7 @@ function AdminTeams({ players, teams, refresh }) {
           <div>
             <label className="form-label">Aantal teams</label>
             <select className="select" value={numTeams} onChange={e => setNumTeams(e.target.value)}>
-              {[4,5,6,7,8].map(n => <option key={n} value={n}>{n} teams</option>)}
+              {[4,5,6,7,8,9,10,11].map(n => <option key={n} value={n}>{n} teams</option>)}
             </select>
           </div>
           <button className="btn-secondary w-full sm:w-auto" onClick={generatePreview}>
@@ -866,7 +918,7 @@ function AdminTeams({ players, teams, refresh }) {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {preview.map((team, i) => (
                 <div key={i} className="sub-card">
-                  <div className="sub-card-title">{team.name}</div>
+                  <div className="sub-card-title flex items-center gap-2"><ClubBadge name={team.name} size={26} /><span>{team.name}</span></div>
                   <div className="flex gap-2 text-xs text-slate-400 mb-1">
                     <span>Gem. niveau: {team.players.length > 0 ? (team.players.reduce((s, p) => s + p.level, 0) / team.players.length).toFixed(1) : '—'}</span>
                     <span>·</span>
@@ -902,7 +954,7 @@ function AdminTeams({ players, teams, refresh }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {teams.map(team => (
               <div key={team.id} className="sub-card">
-                <div className="sub-card-title">{team.name}</div>
+                <div className="sub-card-title flex items-center gap-2"><ClubBadge name={team.name} size={26} /><span>{team.name}</span></div>
                 {(playersByTeam[team.id] || []).map(p => (
                   <div key={p.id} className="flex items-center gap-2 py-0.5 text-sm">
                     <PosBadge pos={p.position} />
@@ -995,7 +1047,9 @@ function AdminGroups({ teams, groups, groupTeams, matches, refresh }) {
               <div key={g.id} className="sub-card">
                 <div className="sub-card-title">{g.name}</div>
                 {(teamsByGroup[g.id] || []).map(t => (
-                  <div key={t.id} className="py-0.5 text-sm text-slate-600">🟢 {t.name}</div>
+                  <div key={t.id} className="py-0.5 text-sm text-slate-600 flex items-center gap-1.5">
+                    <ClubBadge name={t.name} size={18} /><span>{t.name}</span>
+                  </div>
                 ))}
               </div>
             ))}
@@ -1162,13 +1216,14 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
                     <tr key={m.id} className="table-row">
                       <td className="py-2 text-slate-300">{formatDateTime(m.scheduled_time)}</td>
                       <td className="py-2 text-slate-400">Veld {m.field_number}</td>
-                      <td className="py-2 font-medium">{home?.name || '—'}</td>
-                      <td className="py-2 font-medium">{away?.name || '—'}</td>
+                      <td className="py-2 font-medium"><TeamName name={home?.name} size={18} /></td>
+                      <td className="py-2 font-medium"><TeamName name={away?.name} size={18} /></td>
                       <td className="py-2 text-slate-400">{group?.name || '—'}</td>
                       <td className="py-2">
                         {referee
                           ? <span className="inline-flex items-center gap-1.5 text-yellow-500 font-medium">
                               <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain inline-block" />
+                              <ClubBadge name={referee.name} size={16} />
                               {referee.name}
                             </span>
                           : <span className="text-slate-600">—</span>
@@ -1376,7 +1431,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                 <div className="sub-card-title">{group.name}</div>
                 {standings.map((s, i) => (
                   <div key={s.team.id} className={`flex justify-between text-sm py-0.5 ${i < 2 ? 'text-green-400 font-medium' : 'text-slate-400'}`}>
-                    <span>{i + 1}. {s.team.name}</span>
+                    <span className="inline-flex items-center gap-1">{i + 1}. <ClubBadge name={s.team.name} size={16} />{s.team.name}</span>
                     <span>{s.pts} pnt</span>
                   </div>
                 ))}
@@ -1434,7 +1489,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                     <span className="text-xs text-slate-500 text-right">{formatDateTime(m.scheduled_time)} · Veld {m.field_number}</span>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                    <div className="flex-1 font-medium text-right text-sm min-w-0"><TeamName name={home?.name} size={18} reverse /></div>
                     <div className="w-16 text-center font-bold text-sm flex-shrink-0">
                       {isPlayed ? (
                         <div>
@@ -1445,7 +1500,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                         </div>
                       ) : <span className="text-slate-400">vs</span>}
                     </div>
-                    <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                    <div className="flex-1 font-medium text-sm min-w-0"><TeamName name={away?.name} size={18} /></div>
                   </div>
                   <div className="flex items-center gap-2">
                     <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain flex-shrink-0" />
@@ -1516,7 +1571,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                     <span className="text-xs text-slate-500 text-right">{formatDateTime(m.scheduled_time)}</span>
                   </div>
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                    <div className="flex-1 font-medium text-right text-sm min-w-0"><TeamName name={home?.name} size={18} reverse /></div>
                     <div className="w-16 text-center font-bold text-sm flex-shrink-0">
                       {isPlayed ? (
                         <div>
@@ -1527,7 +1582,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                         </div>
                       ) : <span className="text-slate-400">vs</span>}
                     </div>
-                    <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                    <div className="flex-1 font-medium text-sm min-w-0"><TeamName name={away?.name} size={18} /></div>
                   </div>
                   <div className="flex items-center gap-2">
                     <img src="football-referee.png" alt="sch" className="w-4 h-4 object-contain flex-shrink-0" />
@@ -1634,7 +1689,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
                   <div className={`rounded-lg border p-3${isPlayed ? ' border-yellow-200 bg-yellow-50' : ' border-slate-200 bg-white'}`}>
                     <div className="text-xs text-slate-500 mb-2">{formatDateTime(m.scheduled_time)}</div>
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex-1 font-medium text-right text-sm min-w-0 truncate">{home?.name || '—'}</div>
+                      <div className="flex-1 font-medium text-right text-sm min-w-0"><TeamName name={home?.name} size={18} reverse /></div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <input
                           type="number" min="0" max="99"
@@ -1650,7 +1705,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
                           onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, away: e.target.value } }))}
                         />
                       </div>
-                      <div className="flex-1 font-medium text-sm min-w-0 truncate">{away?.name || '—'}</div>
+                      <div className="flex-1 font-medium text-sm min-w-0"><TeamName name={away?.name} size={18} /></div>
                       <div className="flex gap-1 flex-shrink-0">
                         <button
                           className="btn-primary text-xs py-1 px-2"
@@ -1725,7 +1780,7 @@ function PublicMatchCard({ m, teams, groups, refereeTeam, labelText, labelColor,
       </div>
       <div className="match-card-row">
         <div className={`match-card-team text-right ${homeWin ? 'win-text' : isPlayed && !homeWin ? 'text-slate-400' : ''}`}>
-          {home?.name || '—'}
+          <TeamName name={home?.name} size={18} reverse />
         </div>
         <div className="match-card-score">
           {isPlayed
@@ -1733,7 +1788,7 @@ function PublicMatchCard({ m, teams, groups, refereeTeam, labelText, labelColor,
             : <span className="text-slate-400 text-sm">vs</span>}
         </div>
         <div className={`match-card-team ${awayWin ? 'win-text' : isPlayed && !awayWin ? 'text-slate-400' : ''}`}>
-          {away?.name || '—'}
+          <TeamName name={away?.name} size={18} />
         </div>
       </div>
       {hasPenalties && (
@@ -1744,6 +1799,7 @@ function PublicMatchCard({ m, teams, groups, refereeTeam, labelText, labelColor,
       {refereeTeam && (
         <div className="match-card-referee">
           <img src="football-referee.png" alt="sch" className="w-3.5 h-3.5 object-contain" />
+          <ClubBadge name={refereeTeam.name} size={16} />
           <span>{refereeTeam.name}</span>
         </div>
       )}
@@ -1888,7 +1944,7 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
                 {standings.map((s, i) => (
                   <tr key={s.team.id} className={`table-row ${i === 0 && s.pts > 0 ? 'winner' : ''}`}>
                     <td className="py-2 text-slate-500">{i + 1}</td>
-                    <td className="py-2 font-medium">{s.team.name}</td>
+                    <td className="py-2 font-medium"><TeamName name={s.team.name} size={20} /></td>
                     <td className="py-2 col-neutral">{s.p}</td>
                     <td className="py-2 col-win">{s.w}</td>
                     <td className="py-2 col-neutral">{s.d}</td>
@@ -2098,7 +2154,7 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
         </div>
         <div className="match-card-row">
           <div className={`match-card-team text-right font-bold text-base sm:text-xl ${homeWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
-            {home?.name || '—'}
+            <TeamName name={home?.name} size={22} reverse />
           </div>
           <div className="match-card-score font-bold text-xl sm:text-2xl">
             {played ? (
@@ -2111,7 +2167,7 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
             ) : <span className="text-slate-400 text-sm sm:text-base">vs</span>}
           </div>
           <div className={`match-card-team font-bold text-base sm:text-xl ${awayWin ? 'win-text' : played ? 'text-slate-400' : 'text-slate-800'}`}>
-            {away?.name || '—'}
+            <TeamName name={away?.name} size={22} />
           </div>
         </div>
       </div>
@@ -2145,7 +2201,7 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
                 {standings.map((s, i) => (
                   <tr key={s.team.id} className={`table-row ${i < 2 && s.pts > 0 ? 'text-green-700' : ''}`}>
                     <td className="py-2 text-slate-500 text-base">{i + 1}</td>
-                    <td className="py-2 font-bold text-xl">{s.team.name}</td>
+                    <td className="py-2 font-bold text-xl"><TeamName name={s.team.name} size={24} /></td>
                     <td className="py-2 text-center text-base">{s.p}</td>
                     <td className="py-2 text-center text-base">{s.w}</td>
                     <td className="py-2 text-center text-base">{s.d}</td>
@@ -2250,11 +2306,11 @@ function PublicResults({ matches, teams, groups }) {
                     <span className="text-slate-500">{formatDateTime(m.scheduled_time)}</span>
                   </div>
                   <div className="match-card-row">
-                    <div className={`match-card-team text-right ${homeWin ? 'win-text' : ''}`}>{home?.name || '—'}</div>
+                    <div className={`match-card-team text-right ${homeWin ? 'win-text' : ''}`}><TeamName name={home?.name} size={18} reverse /></div>
                     <div className="match-card-score text-lg">
                       <div>{m.home_score} – {m.away_score}</div>
                     </div>
-                    <div className={`match-card-team ${awayWin ? 'win-text' : ''}`}>{away?.name || '—'}</div>
+                    <div className={`match-card-team ${awayWin ? 'win-text' : ''}`}><TeamName name={away?.name} size={18} /></div>
                   </div>
                   {hasPenalties && (
                     <div className="text-center text-xs text-yellow-600 mt-1 font-medium">
