@@ -116,9 +116,8 @@ function TeamName({ name, size, reverse }) {
 function generateBalancedTeams(players, numTeams) {
   const teams = Array.from({ length: numTeams }, (_, i) => ({ index: i, players: [] }));
 
-  // Stap 1: keepers eerst verdelen (zo gelijk mogelijk gespreid)
+  // Stap 1: keepers eerst verdelen (snake draft)
   const gks  = players.filter(p => p.position === 'GK').sort((a, b) => b.level - a.level);
-  // Stap 2: alle overige spelers gesorteerd op niveau (positie doet er niet toe)
   const rest = players.filter(p => p.position !== 'GK').sort((a, b) => b.level - a.level);
 
   let idx = 0;
@@ -133,10 +132,10 @@ function generateBalancedTeams(players, numTeams) {
     });
   }
 
-  draft(gks);   // keepers verspreid
-  draft(rest);  // rest puur op sterkte — maximale balans
+  draft(gks);
+  draft(rest);
 
-  // Stap 3: egaleer teamgroottes (maximaal 1 verschil), verplaats bij voorkeur geen keeper
+  // Stap 2: egaleer teamgroottes (maximaal 1 verschil), verplaats bij voorkeur geen keeper
   let changed = true;
   while (changed) {
     changed = false;
@@ -154,6 +153,49 @@ function generateBalancedTeams(players, numTeams) {
       largest.players = largest.players.filter(p => p !== playerToMove);
       smallest.players.push(playerToMove);
       changed = true;
+    }
+  }
+
+  // Stap 3: swap-optimalisatie — ruil spelers tussen teams totdat de score-spreiding niet meer daalt
+  const teamScore = t => t.players.reduce((s, p) => s + p.level, 0);
+
+  let improved = true;
+  while (improved) {
+    improved = false;
+    const scores = teams.map(teamScore);
+    const currentSpread = Math.max(...scores) - Math.min(...scores);
+    if (currentSpread <= 1) break;
+
+    outer:
+    for (let i = 0; i < teams.length; i++) {
+      for (let j = i + 1; j < teams.length; j++) {
+        if (teams[i].players.length !== teams[j].players.length) continue;
+        for (const pa of teams[i].players) {
+          for (const pb of teams[j].players) {
+            // Keeper-constraint: haal geen keeper weg uit een team dat er maar één heeft
+            if (pa.position === 'GK' && pb.position !== 'GK') {
+              if (teams[i].players.filter(p => p.position === 'GK').length === 1) continue;
+            }
+            if (pb.position === 'GK' && pa.position !== 'GK') {
+              if (teams[j].players.filter(p => p.position === 'GK').length === 1) continue;
+            }
+
+            const newScoreI = scores[i] - pa.level + pb.level;
+            const newScoreJ = scores[j] - pb.level + pa.level;
+            const newScores = [...scores];
+            newScores[i] = newScoreI;
+            newScores[j] = newScoreJ;
+            const newSpread = Math.max(...newScores) - Math.min(...newScores);
+
+            if (newSpread < currentSpread) {
+              teams[i].players = teams[i].players.map(p => p === pa ? pb : p);
+              teams[j].players = teams[j].players.map(p => p === pb ? pa : p);
+              improved = true;
+              break outer;
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1926,25 +1968,25 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
           <div key={g.id} className="card">
             <h3 className="font-bold section-title mb-3">{g.name}</h3>
             <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="table-header">
                   <th className="pb-2 w-6">#</th>
                   <th className="pb-2">Team</th>
-                  <th className="pb-2 text-center">S</th>
-                  <th className="pb-2 text-center">W</th>
-                  <th className="pb-2 text-center">G</th>
-                  <th className="pb-2 text-center">V</th>
-                  <th className="pb-2 text-center hidden sm:table-cell">DV</th>
-                  <th className="pb-2 text-center hidden sm:table-cell">DT</th>
-                  <th className="pb-2 text-center">Pnt</th>
+                  <th className="pb-2 text-center w-8">S</th>
+                  <th className="pb-2 text-center w-8">W</th>
+                  <th className="pb-2 text-center w-8">G</th>
+                  <th className="pb-2 text-center w-8">V</th>
+                  <th className="pb-2 text-center w-9 hidden sm:table-cell">DV</th>
+                  <th className="pb-2 text-center w-9 hidden sm:table-cell">DT</th>
+                  <th className="pb-2 text-center w-10">Pnt</th>
                 </tr>
               </thead>
               <tbody>
                 {standings.map((s, i) => (
                   <tr key={s.team.id} className={`table-row ${i === 0 && s.pts > 0 ? 'winner' : ''}`}>
                     <td className="py-2 text-slate-500">{i + 1}</td>
-                    <td className="py-2 font-medium"><TeamName name={s.team.name} size={20} /></td>
+                    <td className="py-2 font-medium overflow-hidden"><TeamName name={s.team.name} size={20} /></td>
                     <td className="py-2 col-neutral">{s.p}</td>
                     <td className="py-2 col-win">{s.w}</td>
                     <td className="py-2 col-neutral">{s.d}</td>
@@ -2185,23 +2227,23 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
         ) : standingsPerGroup.map(({ group, standings }) => (
           <div key={group.id} className="card">
             <h3 className="text-xl font-bold section-title mb-3">{group.name}</h3>
-            <table className="w-full">
+            <table className="w-full table-fixed">
               <thead>
                 <tr className="table-header text-sm">
                   <th className="pb-2 text-left w-7">#</th>
                   <th className="pb-2 text-left">Team</th>
-                  <th className="pb-2 text-center w-9">S</th>
-                  <th className="pb-2 text-center w-9">W</th>
-                  <th className="pb-2 text-center w-9">G</th>
-                  <th className="pb-2 text-center w-9">V</th>
-                  <th className="pb-2 text-center w-12">Pnt</th>
+                  <th className="pb-2 text-center w-10">S</th>
+                  <th className="pb-2 text-center w-10">W</th>
+                  <th className="pb-2 text-center w-10">G</th>
+                  <th className="pb-2 text-center w-10">V</th>
+                  <th className="pb-2 text-center w-14">Pnt</th>
                 </tr>
               </thead>
               <tbody>
                 {standings.map((s, i) => (
                   <tr key={s.team.id} className={`table-row ${i < 2 && s.pts > 0 ? 'text-green-700' : ''}`}>
                     <td className="py-2 text-slate-500 text-base">{i + 1}</td>
-                    <td className="py-2 font-bold text-xl"><TeamName name={s.team.name} size={24} /></td>
+                    <td className="py-2 font-bold text-xl overflow-hidden"><TeamName name={s.team.name} size={24} /></td>
                     <td className="py-2 text-center text-base">{s.p}</td>
                     <td className="py-2 text-center text-base">{s.w}</td>
                     <td className="py-2 text-center text-base">{s.d}</td>
@@ -2272,6 +2314,142 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
   );
 }
 
+// ─── Teams publiek ───────────────────────────────────────────
+
+function PublicTeams({ teams, players }) {
+  if (teams.length === 0) {
+    return <div className="card empty-state">Teams zijn nog niet ingedeeld.</div>;
+  }
+
+  const playersByTeam = {};
+  teams.forEach(t => { playersByTeam[t.id] = []; });
+  players.forEach(p => { if (p.team_id && playersByTeam[p.team_id]) playersByTeam[p.team_id].push(p); });
+
+  const posOrder = { GK: 0, DEF: 1, MID: 2, FWD: 3 };
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {teams.map(team => {
+        const members = [...(playersByTeam[team.id] || [])].sort(
+          (a, b) => (posOrder[a.position] ?? 9) - (posOrder[b.position] ?? 9)
+        );
+        return (
+          <div key={team.id} className="card">
+            <div className="flex items-center gap-2 mb-3">
+              <ClubBadge name={team.name} size={32} />
+              <span className="font-bold text-lg">{team.name}</span>
+            </div>
+            {members.length === 0 ? (
+              <p className="text-slate-400 text-sm">Nog geen spelers</p>
+            ) : (
+              <div className="space-y-1">
+                {members.map(p => (
+                  <div key={p.id} className="text-sm font-medium py-0.5">{p.name}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Spelregels publiek ──────────────────────────────────────
+
+function PublicRules() {
+  const sections = [
+    {
+      icon: '👥',
+      title: 'Teams & Spelers',
+      items: [
+        'Elk team speelt met 4 veldspelers en 1 keeper (5 vs 5).',
+        'Er mag doorlopend gewisseld worden waarbij de speler die erin komt, op de plek het veld in gaat waar de speler die eruit gaat het veld verlaat.',
+      ],
+    },
+    {
+      icon: '⏱️',
+      title: 'Wedstrijdduur',
+      items: [
+        'Alle wedstrijden duren 15 minuten.',
+        'Tussen de wedstrijden is er een pauze van 5 minuten.',
+      ],
+    },
+    {
+      icon: '🏆',
+      title: 'Poulefase & Puntentelling',
+      items: [
+        'Winst = 3 punten · Gelijkspel = 1 punt · Verlies = 0 punten.',
+        'Bij gelijk puntenaantal geldt achtereenvolgens: doelsaldo, meeste doelpunten voor, onderlinge stand.',
+        'De top 2 van elke poule plaatst zich voor de kruis finales.',
+      ],
+    },
+    {
+      icon: '🏅',
+      title: 'Kruis Finales',
+      items: [
+        'Halve finale: 1e Poule A vs 2e Poule B én 1e Poule B vs 2e Poule A.',
+        'De winnaars spelen de finale; de verliezers spelen om de 3e plaats.',
+        'Bij gelijkspel in de (halve) finale wordt het direct strafschoppen (beide teams nemen 3 penalties, daarna sudden death).',
+      ],
+    },
+    {
+      icon: '🟨',
+      title: 'Fair Play & Gedragsregels',
+      items: [
+        'Sportief gedrag is verplicht',
+        'Het is niet toegestaan om slidings te maken.',
+        'Protesteren tegen scheidsrechterbeslissingen leidt automatisch tot een gele kaart.',
+      ],
+    },
+    {
+      icon: '🦺',
+      title: 'Scheidsrechters',
+      items: [
+        'Elk team fluit wedstrijden van andere poules als zij zelf niet spelen.',
+        'Het scheidsrechterteam staat vermeld in het speelschema.',
+        'De beslissing van de scheidsrechter is definitief.',
+      ],
+    },
+    {
+      icon: 'ℹ️',
+      title: 'Overige regels',
+      items: [
+        'Inschieten of dribbelen bij een uitbal',
+        'Doeltrap of hoekschop zoals bij regulier voetbal.',
+        'Bij twijfel beslist de toernooiorganisatie — hun beslissing is bindend.',
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="card">
+        <h2 className="text-xl font-bold section-title mb-1">Spelregels {CONFIG.TOURNAMENT_NAME}</h2>
+        <p className="text-sm" style={{color:'var(--text-sub)'}}>Hieronder vind je alle spelregels voor het toernooi. Lees ze goed door vóór aanvang!</p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+        {sections.map((s, i) => (
+          <div key={i} className="card">
+            <h3 className="font-bold text-base mb-3 section-title flex items-center gap-2">
+              <span>{s.icon}</span>
+              <span>{s.title}</span>
+            </h3>
+            <ul className="space-y-2">
+              {s.items.map((item, j) => (
+                <li key={j} className="flex items-start gap-2 text-sm" style={{color:'var(--text)'}}>
+                  <span className="mt-0.5 flex-shrink-0" style={{color:'var(--accent)'}}>•</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Uitslagen publiek ────────────────────────────────────────
 
 function PublicResults({ matches, teams, groups }) {
@@ -2331,13 +2509,30 @@ function PublicResults({ matches, teams, groups }) {
 // ADMIN LOGIN
 // ================================================================
 
+const ADMIN_SESSION_KEY = 'jmt_admin_until';
+const ADMIN_SESSION_HOURS = 8;
+
+function saveAdminSession() {
+  const until = Date.now() + ADMIN_SESSION_HOURS * 60 * 60 * 1000;
+  localStorage.setItem(ADMIN_SESSION_KEY, String(until));
+}
+
+function checkAdminSession() {
+  const until = Number(localStorage.getItem(ADMIN_SESSION_KEY) || 0);
+  return Date.now() < until;
+}
+
+function clearAdminSession() {
+  localStorage.removeItem(ADMIN_SESSION_KEY);
+}
+
 function AdminLogin({ onLogin }) {
   const [pw, setPw] = useState('');
   const [error, setError] = useState('');
 
   function tryLogin(e) {
     e.preventDefault();
-    if (pw === CONFIG.ADMIN_PASSWORD) { onLogin(); }
+    if (pw === CONFIG.ADMIN_PASSWORD) { saveAdminSession(); onLogin(); }
     else { setError('Onjuist wachtwoord.'); }
   }
 
@@ -2368,8 +2563,8 @@ function App() {
   const { players, teams, groups, groupTeams, matches, loading, refresh } = useData();
   const [view, setView] = useState('schema'); // schema | standen | uitslagen
   const [adminView, setAdminView] = useState('spelers'); // spelers | teams | poules | schema | uitslagen
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(() => checkAdminSession());
+  const [showAdminPanel, setShowAdminPanel] = useState(() => checkAdminSession());
 
   if (loading) {
     return (
@@ -2418,7 +2613,10 @@ function App() {
             <span className="font-bold text-white text-sm sm:text-base">{CONFIG.TOURNAMENT_NAME}</span>
             <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded hidden sm:inline">Admin</span>
           </div>
-          <button className="btn-secondary text-xs sm:text-sm" onClick={() => setShowAdminPanel(false)}>← Publiek</button>
+          <div className="flex items-center gap-2">
+            <button className="btn-secondary text-xs sm:text-sm" onClick={() => setShowAdminPanel(false)}>← Publiek</button>
+            <button className="btn-secondary text-xs sm:text-sm" onClick={() => { clearAdminSession(); setIsAdmin(false); setShowAdminPanel(false); }}>Uitloggen</button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -2457,6 +2655,8 @@ function App() {
     { id: 'standen',  label: '🏆 Standen' },
     { id: 'uitslagen', label: '⚽ Uitslagen' },
     ...(hasKnockout ? [{ id: 'finales', label: '🏅 Finales' }] : []),
+    ...(teams.length > 0 ? [{ id: 'teams', label: '👕 Teams' }] : []),
+    { id: 'spelregels', label: '📋 Spelregels' },
   ];
 
   return (
@@ -2500,6 +2700,8 @@ function App() {
         {view === 'standen'   && <PublicStandings groups={groups} groupTeams={groupTeams} teams={teams} matches={matches} />}
         {view === 'uitslagen' && <PublicResults matches={matches} teams={teams} groups={groups} />}
         {view === 'finales'   && <PublicFinales groups={groups} groupTeams={groupTeams} teams={teams} matches={matches} />}
+        {view === 'teams'      && <PublicTeams teams={teams} players={players} />}
+        {view === 'spelregels' && <PublicRules />}
       </div>
     </div>
   );
