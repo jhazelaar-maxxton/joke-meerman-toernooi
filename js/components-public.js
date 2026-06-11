@@ -182,6 +182,7 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
                   <th className="pb-2 text-center w-8">V</th>
                   <th className="pb-2 text-center w-9 hidden sm:table-cell">DV</th>
                   <th className="pb-2 text-center w-9 hidden sm:table-cell">DT</th>
+                  <th className="pb-2 text-center w-9">DS</th>
                   <th className="pb-2 text-center w-10">Pnt</th>
                 </tr>
               </thead>
@@ -196,13 +197,14 @@ function PublicStandings({ groups, groupTeams, teams, matches }) {
                     <td className="py-2 col-loss">{s.l}</td>
                     <td className="py-2 text-center hidden sm:table-cell">{s.gf}</td>
                     <td className="py-2 text-center hidden sm:table-cell">{s.ga}</td>
+                    <td className="py-2 text-center text-sm">{s.gf - s.ga > 0 ? `+${s.gf - s.ga}` : s.gf - s.ga}</td>
                     <td className="py-2 col-pts">{s.pts}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
             </div>
-            <div className="text-xs text-slate-600 mt-2">S=Gespeeld, W=Gewonnen, G=Gelijk, V=Verloren, <span className="hidden sm:inline">DV=Doelpunten voor, DT=Doelpunten tegen, </span>Pnt=Punten</div>
+            <div className="text-xs text-slate-600 mt-2">S=Gespeeld, W=Gewonnen, G=Gelijk, V=Verloren, DS=Doelsaldo, <span className="hidden sm:inline">DV=Doelpunten voor, DT=Doelpunten tegen, </span>Pnt=Punten</div>
           </div>
         );
       })}
@@ -465,34 +467,61 @@ function PublicOverview({ matches, teams, groups, groupTeams, players }) {
 
       {/* RIGHT — Speelschema */}
       <div className="xl:col-span-3 space-y-5">
-        <h2 className="text-2xl font-bold text-slate-800 tracking-wide">Speelschema &amp; Uitslagen</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-2xl font-bold text-slate-800 tracking-wide">Speelschema &amp; Uitslagen</h2>
+          {matches.length > 0 && (() => {
+            const poolMatchCount = poolMatches.length;
+            const playedCount    = poolMatches.filter(m => m.status === 'played').length;
+            const allDone        = playedCount === poolMatchCount && poolMatchCount > 0;
+            return (
+              <span className={`text-sm font-semibold px-3 py-1 rounded-full ${allDone ? 'bg-green-100 text-green-700' : 'bg-blue-50 text-blue-600'}`}>
+                {allDone ? '✓ Poulefase afgerond' : `${playedCount} / ${poolMatchCount} gespeeld`}
+              </span>
+            );
+          })()}
+        </div>
 
         {/* Pool matches per time slot */}
         {matchesBySlot.length === 0 && sfMatches.length === 0 && finMatches.length === 0 && (
           <p className="text-slate-400 text-lg">Nog geen wedstrijden gepland.</p>
         )}
 
-        {matchesBySlot.map(([time, slotMatches]) => {
-          const allPlayed = slotMatches.every(m => m.status === 'played');
-          const slotTime = new Date(time);
-          const isLive = !allPlayed && now >= slotTime;
-          return (
-            <div key={time} className={`card ${allPlayed ? 'opacity-60' : ''}`}>
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-lg font-bold text-slate-700 font-mono">{formatTime(time)}</span>
-                {isLive && (
-                  <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-bold tracking-wider">LIVE</span>
-                )}
-                {allPlayed && (
-                  <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded">Gespeeld</span>
-                )}
+        {(() => {
+          const nextSlotTime = matchesBySlot.find(([time, slotMatches]) => {
+            const allPlayed = slotMatches.every(m => m.status === 'played');
+            return !allPlayed && now < new Date(time);
+          })?.[0] ?? null;
+
+          return matchesBySlot.map(([time, slotMatches]) => {
+            const allPlayed  = slotMatches.every(m => m.status === 'played');
+            const slotTime   = new Date(time);
+            const isLive     = !allPlayed && now >= slotTime;
+            const isNext     = !allPlayed && !isLive && time === nextSlotTime;
+
+            const minsUntil  = isNext ? Math.round((slotTime - now) / 60000) : 0;
+            const untilLabel = minsUntil <= 1 ? 'zo meteen' : `over ${minsUntil} min`;
+
+            return (
+              <div key={time} className={`card ${allPlayed ? 'opacity-60' : ''} ${isNext ? 'border-2 border-yellow-400' : ''}`}>
+                <div className="flex items-center gap-3 mb-3">
+                  <span className={`text-lg font-bold font-mono ${isNext ? 'text-yellow-600' : 'text-slate-700'}`}>{formatTime(time)}</span>
+                  {isLive && (
+                    <span className="text-xs bg-green-900 text-green-300 px-2 py-0.5 rounded font-bold tracking-wider">LIVE</span>
+                  )}
+                  {isNext && (
+                    <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded font-bold">Volgende ronde · {untilLabel}</span>
+                  )}
+                  {allPlayed && (
+                    <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded">Gespeeld</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {slotMatches.map(m => <MatchRow key={m.id} m={m} />)}
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                {slotMatches.map(m => <MatchRow key={m.id} m={m} />)}
-              </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
 
         {/* Halve finales */}
         {sfMatches.length > 0 && (

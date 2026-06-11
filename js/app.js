@@ -59,6 +59,9 @@ function App() {
   const [isAdmin, setIsAdmin] = useState(() => checkAdminSession());
   const [showAdminPanel, setShowAdminPanel] = useState(() => checkAdminSession());
 
+  useEffect(() => { window.scrollTo(0, 0); }, [view]);
+  useEffect(() => { window.scrollTo(0, 0); }, [adminView]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">

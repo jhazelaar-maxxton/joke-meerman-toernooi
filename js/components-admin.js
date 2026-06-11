@@ -1388,7 +1388,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
                   {needsPenalties && (
                     <div className="flex items-center gap-2 px-2 py-1.5 bg-yellow-950 rounded text-sm border border-yellow-900">
                       <span className="text-xs text-yellow-400 flex-shrink-0">⚽ Strafschoppen:</span>
-                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-16">{home?.name}</span>
+                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-24">{home?.name}</span>
                       <input
                         type="number" min="0" max="20"
                         className="input w-10 text-center text-xs py-0.5"
@@ -1402,7 +1402,7 @@ function AdminResults({ matches, teams, groups, refresh }) {
                         value={sc.away_penalties}
                         onChange={e => setScores(prev => ({ ...prev, [m.id]: { ...sc, away_penalties: e.target.value } }))}
                       />
-                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-16">{away?.name}</span>
+                      <span className="text-xs text-slate-300 flex-shrink-0 truncate max-w-24">{away?.name}</span>
                     </div>
                   )}
                 </div>
