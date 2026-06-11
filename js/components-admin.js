@@ -35,6 +35,65 @@ function mapPosition(val) {
   return null;
 }
 
+// ─── Datum/tijd invoervelden in Nederlands formaat ───────────
+
+function DateInput({ value, onChange, className, disabled }) {
+  function toDisplay(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y}`;
+  }
+  function toIso(display) {
+    const parts = display.split('/');
+    if (parts.length !== 3) return '';
+    const [d, m, y] = parts;
+    if (d && m && y && y.length === 4) return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+    return '';
+  }
+  const [display, setDisplay] = React.useState(() => toDisplay(value));
+  React.useEffect(() => { setDisplay(toDisplay(value)); }, [value]);
+  return (
+    <input
+      type="text"
+      className={className}
+      value={display}
+      placeholder="dd/mm/jjjj"
+      disabled={disabled}
+      onChange={e => setDisplay(e.target.value)}
+      onBlur={() => {
+        const iso = toIso(display);
+        if (iso) onChange({ target: { value: iso } });
+        else setDisplay(toDisplay(value));
+      }}
+    />
+  );
+}
+
+function TimeInput({ value, onChange, className, disabled }) {
+  const [display, setDisplay] = React.useState(value || '');
+  React.useEffect(() => { setDisplay(value || ''); }, [value]);
+  return (
+    <input
+      type="text"
+      className={className}
+      value={display}
+      placeholder="uu:mm"
+      disabled={disabled}
+      onChange={e => setDisplay(e.target.value)}
+      onBlur={() => {
+        const match = display.match(/^([01]?\d|2[0-3]):([0-5]\d)$/);
+        if (match) {
+          const formatted = `${match[1].padStart(2,'0')}:${match[2]}`;
+          setDisplay(formatted);
+          onChange({ target: { value: formatted } });
+        } else {
+          setDisplay(value || '');
+        }
+      }}
+    />
+  );
+}
+
 // ─── Google Sheets import component ──────────────────────────
 
 function GoogleSheetsImport({ players, refresh }) {
@@ -823,11 +882,11 @@ function AdminSchedule({ groups, groupTeams, teams, matches, refresh }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
           <div>
             <label className="form-label">Datum</label>
-            <input type="date" className="input" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            <DateInput className="input" value={startDate} onChange={e => setStartDate(e.target.value)} />
           </div>
           <div>
             <label className="form-label">Starttijd</label>
-            <input type="time" className="input" value={startTime} onChange={e => setStartTime(e.target.value)} />
+            <TimeInput className="input" value={startTime} onChange={e => setStartTime(e.target.value)} />
           </div>
           <div>
             <label className="form-label">Wedstrijdduur (min)</label>
@@ -961,6 +1020,19 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
     await sb.from('matches').update({ referee_team_id: teamId || null }).eq('id', matchId);
     setSavingReferee(null);
     refresh();
+  }
+
+  function getAvailableReferees(match) {
+    const busyIds = new Set(
+      match.scheduled_time
+        ? matches
+            .filter(o => o.id !== match.id && o.scheduled_time === match.scheduled_time)
+            .flatMap(o => [o.home_team_id, o.away_team_id])
+        : []
+    );
+    busyIds.add(match.home_team_id);
+    busyIds.add(match.away_team_id);
+    return teams.filter(t => !busyIds.has(t.id)).sort((a, b) => a.name.localeCompare(b.name));
   }
 
   async function deleteKnockout() {
@@ -1115,9 +1187,9 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
         </p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
           <div><label className="form-label">Datum</label>
-            <input type="date" className="input" value={sfDate} onChange={e => setSfDate(e.target.value)} /></div>
+            <DateInput className="input" value={sfDate} onChange={e => setSfDate(e.target.value)} /></div>
           <div><label className="form-label">Starttijd</label>
-            <input type="time" className="input" value={sfTime} onChange={e => setSfTime(e.target.value)} /></div>
+            <TimeInput className="input" value={sfTime} onChange={e => setSfTime(e.target.value)} /></div>
           <div><label className="form-label">Duur (min)</label>
             <input type="number" className="input" value={sfDuration} min={5} max={90} onChange={e => setSfDuration(e.target.value)} /></div>
           <div><label className="form-label">Pauze (min)</label>
@@ -1176,11 +1248,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                       disabled={savingReferee === m.id}
                     >
                       <option value="">— Geen scheidsrechter —</option>
-                      {teams
-                        .filter(t => t.id !== m.home_team_id && t.id !== m.away_team_id)
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map(t => <option key={t.id} value={t.id}>{t.name}</option>)
-                      }
+                      {getAvailableReferees(m).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                     {savingReferee === m.id && <Spinner />}
                   </div>
@@ -1202,9 +1270,9 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
         )}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4">
           <div><label className="form-label">Datum</label>
-            <input type="date" className="input" value={finalDate} onChange={e => setFinalDate(e.target.value)} disabled={!sfAllPlayed} /></div>
+            <DateInput className="input" value={finalDate} onChange={e => setFinalDate(e.target.value)} disabled={!sfAllPlayed} /></div>
           <div><label className="form-label">Starttijd</label>
-            <input type="time" className="input" value={finalTime} onChange={e => setFinalTime(e.target.value)} disabled={!sfAllPlayed} /></div>
+            <TimeInput className="input" value={finalTime} onChange={e => setFinalTime(e.target.value)} disabled={!sfAllPlayed} /></div>
           <div><label className="form-label">Duur (min)</label>
             <input type="number" className="input" value={finalDuration} min={5} max={90} onChange={e => setFinalDuration(e.target.value)} disabled={!sfAllPlayed} /></div>
           <div><label className="form-label">Pauze (min)</label>
@@ -1258,11 +1326,7 @@ function AdminFinales({ groups, groupTeams, teams, matches, refresh }) {
                       disabled={savingReferee === m.id}
                     >
                       <option value="">— Geen scheidsrechter —</option>
-                      {teams
-                        .filter(t => t.id !== m.home_team_id && t.id !== m.away_team_id)
-                        .sort((a, b) => a.name.localeCompare(b.name))
-                        .map(t => <option key={t.id} value={t.id}>{t.name}</option>)
-                      }
+                      {getAvailableReferees(m).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                     {savingReferee === m.id && <Spinner />}
                   </div>
