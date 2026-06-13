@@ -54,8 +54,8 @@ function AdminLogin({ onLogin }) {
 
 function App() {
   const { players, teams, groups, groupTeams, matches, loading, refresh } = useData();
-  const [view, setView] = useState('schema'); // schema | standen | uitslagen
-  const [adminView, setAdminView] = useState('spelers'); // spelers | teams | poules | schema | uitslagen
+  const [view, setView] = useState('overzicht'); // overzicht | schema | standen | uitslagen
+  const [adminView, setAdminView] = useState('uitslagen'); // spelers | teams | poules | schema | uitslagen
   const [isAdmin, setIsAdmin] = useState(() => checkAdminSession());
   const [showAdminPanel, setShowAdminPanel] = useState(() => checkAdminSession());
 
