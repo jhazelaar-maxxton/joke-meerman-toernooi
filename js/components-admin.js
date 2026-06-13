@@ -532,6 +532,9 @@ function AdminTeams({ players, teams, refresh }) {
   const [generating, setGenerating] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [preview, setPreview] = useState(null);
+  const [addNames, setAddNames] = useState({});
+  const [addSaving, setAddSaving] = useState(null);
+  const [removingSaving, setRemovingSaving] = useState(null);
 
   function generatePreview() {
     const n = Math.min(parseInt(numTeams), ALLE_CLUBS.length);
@@ -585,6 +588,34 @@ function AdminTeams({ players, teams, refresh }) {
     teams.forEach(t => { map[t.id] = players.filter(p => p.team_id === t.id); });
     return map;
   }, [teams, players]);
+
+  async function removePlayerFromTeam(playerId) {
+    setRemovingSaving(playerId);
+    await sb.from('players').update({ team_id: null }).eq('id', playerId);
+    setRemovingSaving(null);
+    refresh();
+  }
+
+  async function addPlayerToTeam(teamId) {
+    const name = (addNames[teamId] || '').trim();
+    if (!name) return;
+    setAddSaving(teamId);
+    const existing = players.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (existing.team_id && existing.team_id !== teamId) {
+        const teamName = teams.find(t => t.id === existing.team_id)?.name || 'een ander team';
+        alert(`"${existing.name}" zit al in ${teamName}. Verwijder hem/haar daar eerst.`);
+        setAddSaving(null);
+        return;
+      }
+      await sb.from('players').update({ team_id: teamId }).eq('id', existing.id);
+    } else {
+      await sb.from('players').insert({ name, position: 'MID', level: 3, team_id: teamId });
+    }
+    setAddNames(prev => ({ ...prev, [teamId]: '' }));
+    setAddSaving(null);
+    refresh();
+  }
 
   return (
     <div className="space-y-5">
@@ -683,10 +714,34 @@ function AdminTeams({ players, teams, refresh }) {
                 {(playersByTeam[team.id] || []).map(p => (
                   <div key={p.id} className="flex items-center gap-2 py-0.5 text-sm">
                     <PosBadge pos={p.position} />
-                    <span>{p.name}</span>
+                    <span className="flex-1">{p.name}</span>
                     <LevelDots level={p.level} />
+                    <button
+                      className="text-slate-500 hover:text-red-400 leading-none ml-1 flex-shrink-0"
+                      title="Verwijder uit team"
+                      onClick={() => removePlayerFromTeam(p.id)}
+                      disabled={removingSaving === p.id}
+                    >
+                      {removingSaving === p.id ? <Spinner /> : '×'}
+                    </button>
                   </div>
                 ))}
+                <div className="flex gap-1 mt-2 pt-2 border-t border-slate-700">
+                  <input
+                    className="input flex-1 text-sm py-1"
+                    placeholder="Naam toevoegen…"
+                    value={addNames[team.id] || ''}
+                    onChange={e => setAddNames(prev => ({ ...prev, [team.id]: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') addPlayerToTeam(team.id); }}
+                  />
+                  <button
+                    className="btn-primary text-xs px-2 py-1 flex-shrink-0"
+                    onClick={() => addPlayerToTeam(team.id)}
+                    disabled={addSaving === team.id || !(addNames[team.id] || '').trim()}
+                  >
+                    {addSaving === team.id ? <Spinner /> : '+'}
+                  </button>
+                </div>
               </div>
             ))}
           </div>
